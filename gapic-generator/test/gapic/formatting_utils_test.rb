@@ -45,7 +45,7 @@ class FormattingUtilsTest < Minitest::Test
 
   def test_escape_braces_unmatched_brace_line
     result = Gapic::FormattingUtils.format_doc_lines nil, ["hello {ruby world\n"]
-    assert_equal ["hello {ruby world\n"], result
+    assert_equal ["hello \\\\{ruby world\n"], result
   end
 
   def test_escape_braces_escaped_brace_line
@@ -527,5 +527,200 @@ class FormattingUtilsTest < Minitest::Test
   def test_format_number_negative_large_float
     str = Gapic::FormattingUtils.format_number(-1_234_567.89)
     assert_equal "-1_234_567.89", str
+  end
+
+  def test_escape_braces_multiline_unmatched
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "Formatted as an array of inclusive ranges {min: min-value, max:\n",
+      "max-value}. For example, [{min: 123, max: 123}, {min: 64512, max: 65534}]\n"
+    ]
+    assert_equal [
+      "Formatted as an array of inclusive ranges \\\\{min: min-value, max:\n",
+      "max-value}. For example, [\\\\{min: 123, max: 123}, \\\\{min: 64512, max: 65534}]\n"
+    ], result
+  end
+
+  def test_escape_braces_multiline_unmatched_json
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "port number. Named ports can also contain multiple ports. " \
+      "For example:[{name: \"app1\", port: 8080}, {name:\n",
+      "\"app1\", port: 8081}, {name: \"app2\", port:\n",
+      "8082}]\n"
+    ]
+    assert_equal [
+      "port number. Named ports can also contain multiple ports. " \
+      "For example:[\\\\{name: \"app1\", port: 8080}, \\\\{name:\n",
+      "\"app1\", port: 8081}, \\\\{name: \"app2\", port:\n",
+      "8082}]\n"
+    ], result
+  end
+
+  def test_sanitize_unknown_tags
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "@pattern: \\d+(?:-\\d+)?\n",
+      "@required compute.instancegroups.addInstances\n",
+      "RFC1035 @pattern [a-z](?:[-a-z0-9]\\{0,61}[a-z0-9])?\n"
+    ]
+    assert_equal [
+      "`@pattern`: \\d+(?:-\\d+)?\n",
+      "`@required` compute.instancegroups.addInstances\n",
+      "RFC1035 `@pattern` [a-z](?:[-a-z0-9]\\{0,61}[a-z0-9])?\n"
+    ], result
+  end
+
+  def test_dont_sanitize_known_yard_tags
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "@param foo [String]\n",
+      "@return [Integer]\n",
+      "@deprecated Do not use\n",
+      "@see http://example.com\n",
+      "@attr [String] name description\n",
+      "@attr_reader [String] name description\n",
+      "@attr_writer [String] name description\n",
+      "@!attribute [rw] foo\n"
+    ]
+    assert_equal [
+      "@param foo [String]\n",
+      "@return [Integer]\n",
+      "@deprecated Do not use\n",
+      "@see http://example.com\n",
+      "@attr [String] name description\n",
+      "@attr_reader [String] name description\n",
+      "@attr_writer [String] name description\n",
+      "@!attribute [rw] foo\n"
+    ], result
+  end
+
+  def test_dont_sanitize_email_addresses
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "Contact support@example.com for help\n"
+    ]
+    assert_equal [
+      "Contact support@example.com for help\n"
+    ], result
+  end
+
+  def test_dont_sanitize_already_backticked_tags
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "Use `@pattern` to specify format\n"
+    ]
+    assert_equal [
+      "Use `@pattern` to specify format\n"
+    ], result
+  end
+
+  def test_escape_braces_followed_by_backtick
+    result = Gapic::FormattingUtils.format_doc_lines nil, [
+      "must be one of {`training`, `validation`, `test`}, and it defines\n"
+    ]
+    assert_equal [
+      "must be one of \\\\{`training`, `validation`, `test`}, and it defines\n"
+    ], result
+  end
+
+  def test_fenced_code_block_preserves_braces_and_tags
+    lines = [
+      "For example, the following JSON creates a divider:\n",
+      "\n",
+      "```\n",
+      "\"divider\": {}\n",
+      "Hello @FooBot how are you!\n",
+      "```\n",
+      "\n",
+      "Choose from {100, 200, 300}.\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal [
+      "For example, the following JSON creates a divider:\n",
+      "\n",
+      "```\n",
+      "\"divider\": {}\n",
+      "Hello @FooBot how are you!\n",
+      "```\n",
+      "\n",
+      "Choose from \\\\{100, 200, 300}.\n"
+    ], result
+  end
+
+  def test_fenced_code_block_with_language_tag
+    lines = [
+      "Example with language:\n",
+      "```json\n",
+      "{\"name\": \"app\", \"ports\": [{8080}]}\n",
+      "```\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal lines, result
+  end
+
+  def test_fenced_code_block_with_tilde
+    lines = [
+      "Example with tilde:\n",
+      "~~~\n",
+      "{\"name\": \"app\", \"ports\": [{8080}]}\n",
+      "~~~\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal lines, result
+  end
+
+  def test_multiline_inline_code_span_preserves_braces
+    lines = [
+      "Value format:\n",
+      "`projects/{project}/locations/{location}/featurestores/\n",
+      "{featurestore}/entityTypes/{entityType}`. For example,\n",
+      "choose from {100, 200}.\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal [
+      "Value format:\n",
+      "`projects/{project}/locations/{location}/featurestores/\n",
+      "{featurestore}/entityTypes/{entityType}`. For example,\n",
+      "choose from \\\\{100, 200}.\n"
+    ], result
+  end
+
+  def test_multiline_inline_code_span_preserves_tags
+    lines = [
+      "Here is an example:\n",
+      "`Hello @FooBot\n",
+      "@BarBot` in code\n",
+      "@FooBot outside code\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal [
+      "Here is an example:\n",
+      "`Hello @FooBot\n",
+      "@BarBot` in code\n",
+      "`@FooBot` outside code\n"
+    ], result
+  end
+
+  def test_multiline_inline_code_span_three_lines
+    lines = [
+      "Start `code line 1 {foo}\n",
+      "code line 2 {bar}\n",
+      "code line 3 {baz}` end {qux}\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal [
+      "Start `code line 1 {foo}\n",
+      "code line 2 {bar}\n",
+      "code line 3 {baz}` end \\\\{qux}\n"
+    ], result
+  end
+
+  def test_multiline_code_span_resets_on_blank_line
+    lines = [
+      "Unclosed `code span\n",
+      "\n",
+      "New paragraph with {100, 200}\n"
+    ]
+    result = Gapic::FormattingUtils.format_doc_lines nil, lines
+    assert_equal [
+      "Unclosed `code span\n",
+      "\n",
+      "New paragraph with \\\\{100, 200}\n"
+    ], result
   end
 end
