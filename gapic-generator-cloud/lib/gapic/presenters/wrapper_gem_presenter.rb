@@ -105,12 +105,53 @@ module Gapic
         gem_config(:factory_method_suffix).to_s
       end
 
+      ##
+      # The canonical gem name prior to renaming.
+      #
+      # In some cases, a wrapper gem cannot be published under its canonical
+      # name because a conflicting gem already exists on RubyGems.org. For example:
+      # - "google-cloud-run" was renamed to "google-cloud-run-client" because RubyGems
+      #   already had an existing gem named "google_cloud_run".
+      # - "google-iam" was renamed to "google-iam-client" because RubyGems already had
+      #   an unrelated gem named "google-iam".
+      #
+      # Even though the wrapper gem itself is renamed with a "-client" suffix, it
+      # still wraps versioned client gems named after the canonical name (e.g.
+      # "google-cloud-run-v2", "google-iam-v2") and defines classes in the canonical
+      # namespace (e.g. "Google::Cloud::Run", "Google::Iam").
+      #
+      # @return [String]
+      def renamed_from
+        gem_config(:renamed_from) || name
+      end
+
+      def renamed_gem?
+        renamed_from != name
+      end
+
+      def namespace
+        gem_config(:namespace) ||
+          fix_namespace(@api, renamed_from.split("-").map(&:camelize).join("::"))
+      end
+
+      def gem_namespace
+        fix_namespace(@api, name.split("-").map(&:camelize).join("::"))
+      end
+
+      def version_name_full
+        if renamed_gem?
+          "#{gem_namespace}::VERSION"
+        else
+          "#{namespace}::VERSION"
+        end
+      end
+
       def version_dependencies
         gem_config(:version_dependencies).to_s.split(";").map { |str| str.split ":" }
       end
 
       def versioned_gems
-        version_dependencies.map { |version, _requirement| "#{name}-#{version}" }.sort
+        version_dependencies.map { |version, _requirement| "#{renamed_from}-#{version}" }.sort
       end
 
       def default_version
@@ -129,7 +170,7 @@ module Gapic
             # 0.x and 1.x versions to ease the transition to 1.0 (GA) releases
             # for those dependencies. (Note the 0.x->1.0 transition is
             # generally not breaking.)
-            deps["#{name}-#{version}"] =
+            deps["#{renamed_from}-#{version}"] =
               if requirement.start_with? "0."
                 [">= #{requirement}", "< 2.a"]
               else
@@ -143,13 +184,13 @@ module Gapic
       end
 
       def google_cloud_short_name
-        m = /^google-cloud-(.*)$/.match name
+        m = /^google-cloud-(.*)$/.match renamed_from
         return nil unless m
         m[1].tr "-", "_"
       end
 
       def docs_link version: nil, class_name: nil, text: nil, gem_name: nil
-        gem_name ||= version ? "#{name}-#{version}" : name
+        gem_name ||= version ? "#{renamed_from}-#{version}" : name
         base_url =
           if cloud_product?
             "https://cloud.google.com/ruby/docs/reference/#{gem_name}/latest"
