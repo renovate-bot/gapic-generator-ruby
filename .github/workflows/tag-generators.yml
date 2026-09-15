@@ -28,7 +28,7 @@ jobs:
         with:
           token: ${{ secrets.YOSHI_CODE_BOT_TOKEN }}
       - name: Install Ruby 3.4
-        uses: ruby/setup-ruby@0dafeac902942906541bc140009cdbf32665b601 # v1.315.0
+        uses: ruby/setup-ruby@bec3f19a76460dbe12f60def7d1a77585f07516c # v1.322.0
         with:
           ruby-version: "3.4"
       - name: Install tools
